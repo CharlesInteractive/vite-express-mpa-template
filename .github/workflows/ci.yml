@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      # The build must actually prerender: a page whose #root is still empty
+      # would ship, deploy and pass every other check without complaint.
+      - name: Verify pages were prerendered
+        run: |
+          for page in index routea/index routeb/index routec/index; do
+            grep -q '<div id="root"><' "dist/$page.html" \
+              || { echo "dist/$page.html was not prerendered"; exit 1; }
+          done
