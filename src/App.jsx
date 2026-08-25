@@ -8,9 +8,9 @@ import Header from "./components/Header";
 // index.html (which is what the dev server shows); tests/routes.test.js
 // enforces that. `image` and `siteUrl` are optional additions for og: tags.
 export const meta = {
-  title: "Vite + React + Tailwind CSS",
+  title: "Vite Express MPA Template",
   description:
-    "A boilerplate template for building multi-page applications with React, Vite, Tailwind CSS and Prettier.",
+    "A boilerplate template for building multi-page applications with React, Vite, Express, Tailwind CSS and Prettier — prerendered to static HTML and served by Express.",
 };
 
 function App() {
@@ -20,9 +20,9 @@ function App() {
     <>
       <Header />
       <div className="container mx-auto mt-12 p-2">
-        <h1 className="text-center">Vite + React + Tailwind CSS</h1>
+        <h1 className="text-center">Vite Express MPA Template</h1>
         <h2 className="mb-5 text-center">
-          Multi Page React Application using Tailwind CSS with Vite
+          Multi Page React Application using Express and Tailwind CSS with Vite
         </h2>
         <button
           className="mx-auto mb-8 block"
@@ -36,12 +36,56 @@ function App() {
             <br />
             Click on the Vite, React and Tailwind CSS logos to learn more.
           </p>
+          <h3>Stack</h3>
+          <ul>
+            <li>
+              <a href="https://react.dev/" target="_blank" rel="noreferrer">
+                React
+              </a>{" "}
+              19 — one independent root per page, hydrating prerendered markup
+            </li>
+            <li>
+              <a href="https://vite.dev/" target="_blank" rel="noreferrer">
+                Vite
+              </a>{" "}
+              8 — dev server and build, one entry per page
+            </li>
+            <li>
+              <a
+                href="https://tailwindcss.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Tailwind CSS
+              </a>{" "}
+              4 — via <code>@tailwindcss/postcss</code>
+            </li>
+            <li>
+              <a href="https://expressjs.com/" target="_blank" rel="noreferrer">
+                Express
+              </a>{" "}
+              5 with{" "}
+              <a
+                href="https://helmetjs.github.io/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                helmet
+              </a>{" "}
+              — serves the build with the cache and security headers a deploy
+              needs
+            </li>
+            <li>
+              ESLint 9 (flat config), Prettier 3 (auto-sorts Tailwind classes),
+              and Vitest 4 with Testing Library
+            </li>
+          </ul>
           <h3>Setup</h3>
           <ol>
             <li>
               <code>
                 git clone
-                https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template.git
+                https://github.com/CharlesInteractive/vite-express-mpa-template.git
               </code>
             </li>
             <li>
@@ -57,6 +101,9 @@ function App() {
             </li>
             <li>
               Build the project for production: <code>npm run build</code>
+            </li>
+            <li>
+              Serve the build over Express: <code>npm start</code>
             </li>
           </ol>
           <h3>Dev Loop</h3>
@@ -84,6 +131,10 @@ function App() {
             <li>
               <code>npm run preview</code> - serve the production build locally
             </li>
+            <li>
+              <code>npm start</code> - serve the build over Express, with the
+              cache and security headers a deploy needs
+            </li>
           </ul>
           <p>
             The three build passes also run on their own as{" "}
@@ -99,6 +150,57 @@ function App() {
             routes stay in sync with the nav and the build entries, every
             page&apos;s prerendered markup hydrates without a mismatch, and the
             prerender escapes the metadata it injects.
+          </p>
+          <p>
+            The server has its own tests — security headers, the cache rules,
+            real 404s rather than redirects, path traversal, and the port
+            fallback. They build a temporary <code>dist</code> fixture rather
+            than using a real build, since CI runs the suite before{" "}
+            <code>npm run build</code>.
+          </p>
+          <h3>Project structure</h3>
+          <pre className="bg-white-muted dark:bg-black-muted mb-5 overflow-x-auto rounded-md p-4 text-xs leading-relaxed">
+            {`src/
+├── index.html            # root page (/) — has the prerender markers
+├── main.jsx              #   client entry; hydrates the markup
+├── App.jsx               #   component + the page's \`meta\` export
+├── routea/               # example pages: index.html + main.jsx +
+├── routeb/               #   App.jsx — copy, edit, or delete them
+├── routec/
+├── components/
+│   ├── Header.jsx        # shared nav + logo bar
+│   ├── navLinks.js       # the nav links (a "three places" file)
+│   └── pathname.js       # usePathname() — browser and prerender
+├── entry-server.jsx      # SSR render entry; build-time only
+├── reloadOnChunkError.js # stale-deploy reload guard; client-only
+├── index.css             # the one stylesheet, imported everywhere
+├── assets/               # imported assets (content-hashed)
+└── public/               # copied verbatim into dist/
+
+scripts/
+├── prerender.js          # build pass 3 — renders pages into dist/
+└── prerenderHtml.js      #   its pure HTML transforms (tested)
+
+server.js                 # \`npm start\` entry — env, listen, shutdown
+server/
+├── app.js                # createApp() — middleware, static, 404s
+├── csp.js                # the CSP (edit this per site)
+└── listen.js             # listenWithFallback() — next free port
+
+tests/
+├── routes.test.js        # the MPA invariants
+├── hydration.test.jsx    # markup hydrates without a mismatch
+└── server.test.js        # the server's headers, caching and 404s
+
+vite.config.js            # client build — the page registry
+vite.ssr.config.js        # SSR build — entries from vite.config.js
+vitest.config.js          # tests run from the repo root
+tailwind.config.js        # theme, loaded via @config in index.css`}
+          </pre>
+          <p>
+            <code>dist/</code> is build output: git-ignored and wiped on every
+            build, so never edit it by hand — React overwrites anything you
+            change inside <code>#root</code> when it hydrates.
           </p>
           <h3>Multi Page Application</h3>
           <p>
@@ -116,9 +218,9 @@ function App() {
             This page is static HTML: <code>npm run build</code> renders every
             page to real markup and the browser hydrates it, so crawlers and
             link previews see content rather than an empty root element. The
-            build output is still fully static — no server required. Each page
-            exports a <code>meta</code> object from its <code>App.jsx</code> for
-            its title, description and Open Graph tags.
+            build output is still fully static, so any static host will serve
+            it. Each page exports a <code>meta</code> object from its{" "}
+            <code>App.jsx</code> for its title, description and Open Graph tags.
           </p>
           <p>
             Anything reachable from an <code>App.jsx</code> also runs in Node at
@@ -139,19 +241,88 @@ function App() {
             A font pack is also included (Nunito Sans) along with its Open Font
             License.
           </p>
+          <h3>Server</h3>
+          <p>
+            <code>npm start</code> serves <code>dist/</code> over Express with
+            the headers a production deploy needs.{" "}
+            <code>npm run start:watch</code> does the same and restarts when a
+            server file changes (Node&apos;s built-in <code>--watch</code>, no
+            nodemon). Run <code>npm run build</code> first — the server exits
+            with a clear message rather than serving 404s if <code>dist/</code>{" "}
+            is missing.
+          </p>
+          <ul>
+            <li>
+              <code>server.js</code> — entry: env parsing, preflight check,
+              listen, logging, graceful shutdown
+            </li>
+            <li>
+              <code>server/app.js</code> — <code>createApp()</code>: middleware,
+              static mounts, the 404 and error handlers
+            </li>
+            <li>
+              <code>server/csp.js</code> — the Content-Security-Policy,{" "}
+              <strong>the one file you edit per site</strong>
+            </li>
+            <li>
+              <code>server/listen.js</code> — <code>listenWithFallback()</code>,
+              the port walk
+            </li>
+          </ul>
+          <p>
+            Configuration is environment variables: <code>PORT</code> (defaults
+            to 8006; an unparseable value exits 1 rather than silently binding
+            elsewhere), <code>HOST</code> (defaults to <code>0.0.0.0</code>),{" "}
+            <code>NODE_ENV</code> (<code>production</code> enables HSTS and{" "}
+            <code>upgrade-insecure-requests</code>), and{" "}
+            <code>TRUST_PROXY</code> for running behind a reverse proxy.
+          </p>
+          <p>
+            <strong>If the port is busy the server takes the next one</strong> —
+            8006, 8007, and so on for up to ten attempts — and logs where it
+            landed. <code>EACCES</code> is not retried: a privileged port is a
+            permissions problem that the next port up will not fix.
+          </p>
+          <p>
+            Headers come from helmet. HTML is served <code>no-cache</code>,{" "}
+            <code>/assets/*</code> (content-hashed) <code>immutable</code> for a
+            year, and <code>/fonts/*</code> for a week. An unknown path gets a
+            real <code>404</code> — never a redirect to <code>/</code>, which
+            would hand an HTML body to a request for a missing chunk and break
+            the stale-deploy recovery described above.
+          </p>
+          <p>
+            One thing to know before adding analytics:{" "}
+            <strong>
+              <code>script-src</code> carries no{" "}
+              <code>&apos;unsafe-inline&apos;</code>
+            </strong>
+            . This template&apos;s build emits zero inline scripts, so the
+            strict policy costs nothing — but Google Tag Manager&apos;s
+            container snippet and some AdSense paths are inline and will be
+            blocked. <code>server/csp.js</code> documents both ways out, and is
+            also where you add any third-party script, font, embed or analytics
+            host.
+          </p>
           <h3>Deployment</h3>
           <p>
-            The output in <code>dist/</code> is fully static, so any static host
-            will serve it. Serve the HTML entries with{" "}
-            <code>Cache-Control: no-cache</code> so browsers always get markup
-            that matches the current asset hashes; the hashed files under{" "}
-            <code>dist/assets/</code> can be cached indefinitely.
+            Serve the HTML entries with <code>Cache-Control: no-cache</code> so
+            browsers always get markup that matches the current asset hashes;
+            the hashed files under <code>dist/assets/</code> can be cached
+            indefinitely.
+          </p>
+          <p>
+            Two ways to get that right: hand <code>dist/</code> to a static host
+            and configure the headers there, or run <code>npm start</code> — an
+            Express server that serves the build with those cache rules, a
+            Content-Security-Policy and the rest of the security headers already
+            applied. It takes the next free port if the one it wants is busy.
           </p>
           <h3>Contributing</h3>
           <p>
             Feel free to{" "}
             <a
-              href="https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template/issues/new"
+              href="https://github.com/CharlesInteractive/vite-express-mpa-template/issues/new"
               target="_blank"
               rel="noreferrer"
             >
@@ -166,7 +337,7 @@ function App() {
           </p>
           <p className="mb-24 text-center text-2xl">
             <a
-              href="https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template/"
+              href="https://github.com/CharlesInteractive/vite-express-mpa-template/"
               target="_blank"
               rel="noreferrer"
             >

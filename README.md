@@ -1,8 +1,8 @@
-# Vite React Tailwind Prettier MPA Template
+# Vite Express MPA Template
 
 <p align="center">
-    <a href="https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template/actions/workflows/ci.yml">
-        <img src="https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template/actions/workflows/ci.yml/badge.svg" alt="CI status">
+    <a href="https://github.com/CharlesInteractive/vite-express-mpa-template/actions/workflows/ci.yml">
+        <img src="https://github.com/CharlesInteractive/vite-express-mpa-template/actions/workflows/ci.yml/badge.svg" alt="CI status">
     </a>
 </p>
 
@@ -14,11 +14,16 @@
     <br>
 </p>
 
-This template has been configured with all of the tools required to create a Multi Page React Application using TailwindCSS with Vite.
+This template has been configured with all of the tools required to create a Multi Page React Application using TailwindCSS with Vite, and to serve the result with Express.
 
 Each "page"/route is a fully independent HTML entry point with its own React root — there
 is no client-side router. Navigation between pages is plain `<a href>` links that trigger
 full page loads.
+
+Every page is prerendered to static HTML at build time, so the output works on any static
+host. The included Express server (`npm start`) serves that output with the cache and
+security headers the build expects, so you can deploy anywhere Node runs without
+reproducing that configuration per host.
 
 ## Screenshot
 
@@ -35,6 +40,7 @@ full page loads.
 ![ESLint](https://img.shields.io/badge/linter-eslint-4B32C3?style=flat&logo=eslint)
 ![Prettier](https://img.shields.io/badge/formatter-prettier-F8BC45?style=flat&logo=prettier)
 ![Vite](https://img.shields.io/badge/build-vite-A855F7?style=flat&logo=vite)
+![Express](https://img.shields.io/badge/server-express-000000?style=flat&logo=express)
 
 - [React](https://react.dev/) 19
 - [TailwindCSS](https://tailwindcss.com/) v4 for utility CSS classes (via `@tailwindcss/postcss`)
@@ -42,6 +48,8 @@ full page loads.
 - [Prettier](https://prettier.io/) 3 to enforce consistent code style (auto-sorts Tailwind classes)
 - [Vite](https://vite.dev/) 8 to build the project for development or production
 - [Vitest](https://vitest.dev/) 4 with [Testing Library](https://testing-library.com/) for the test suite
+- [Express](https://expressjs.com/) 5 with [helmet](https://helmetjs.github.io/) to serve
+  the build with sane cache and security headers
 - Build-time prerendering: every page is rendered to static HTML and hydrated in the
   browser, so the output is SEO-friendly while staying entirely static
 
@@ -49,11 +57,12 @@ full page loads.
 
 ### Setup
 
-1. `git clone https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template.git`
+1. `git clone https://github.com/CharlesInteractive/vite-express-mpa-template.git`
 2. Use the Node version pinned in `.nvmrc` (`v22`), e.g. `nvm use`
 3. Run `npm install` to install all of the project's dependencies
 4. Run the local development server: `npm run dev`
 5. Build the project for production: `npm run build`
+6. Serve the production build over Express: `npm start`
 
 ### Dev Loop
 
@@ -69,10 +78,11 @@ Day to day:
 
 Shipping:
 
-| Command           | What it does                                                                     |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `npm run build`   | Full production build to `dist/` — client, then SSR, then prerender              |
-| `npm run preview` | Serve `dist/` locally: prerendered HTML, real asset hashes, exactly what deploys |
+| Command           | What it does                                                             |
+| ----------------- | ------------------------------------------------------------------------ |
+| `npm run build`   | Full production build to `dist/` — client, then SSR, then prerender      |
+| `npm run preview` | Serve `dist/` locally with Vite: prerendered HTML, real asset hashes     |
+| `npm start`       | Serve `dist/` with the Express server — the same headers production gets |
 
 The three build passes are also runnable on their own, which is what you want when
 debugging a build failure:
@@ -106,6 +116,9 @@ Tests run on [Vitest](https://vitest.dev/) with
   browser without React logging a mismatch.
 - **`scripts/prerenderHtml.test.js`** - the prerender's HTML transforms, including
   escaping of injected metadata.
+- **`tests/server.test.js`** - the Express server: security headers, the cache rules,
+  real 404s (not redirects), path traversal, and the port fallback. It builds its own
+  temporary `dist` fixture, since CI runs the suite before the build.
 
 CI (`.github/workflows/ci.yml`) runs `lint`, `test` and `build` on every push and pull
 request using the Node version from `.nvmrc`, then asserts each built page actually got
@@ -136,9 +149,16 @@ scripts/
 ├── prerender.js          # build pass 3 — renders pages into dist/
 └── prerenderHtml.js      #   its pure HTML transforms (unit tested)
 
+server.js                 # `npm start` entry — env, listen, logging, shutdown
+server/
+├── app.js                # createApp() — middleware, static mounts, 404 handler
+├── csp.js                # the Content-Security-Policy (edit this per site)
+└── listen.js             # listenWithFallback() — walks to the next free port
+
 tests/
 ├── routes.test.js        # the MPA invariants
-└── hydration.test.jsx    # server markup hydrates without a mismatch
+├── hydration.test.jsx    # server markup hydrates without a mismatch
+└── server.test.js        # the Express server's headers, caching and 404s
 
 vite.config.js            # client build — the page registry lives here
 vite.ssr.config.js        # SSR build — derives its entries from vite.config.js
@@ -182,7 +202,8 @@ build: {
 Every page is rendered to real HTML during `npm run build` and hydrated in the browser,
 so search engines, link-preview bots and users get content immediately instead of an
 empty `<div id="root">`. The output is still entirely static — deploy it to Netlify,
-Vercel, S3, GitHub Pages or any static host, with no server to run.
+Vercel, S3, GitHub Pages or any static host, or serve it with the included Express
+server (see below).
 
 `npm run build` is three passes:
 
@@ -222,6 +243,49 @@ The default project is styled with preconfigured Tailwind directives and layers.
 
 A font pack is also included (Nunito Sans) along with its [Open Font License](./src/public/fonts/Nunito_Sans/OFL.txt).
 
+### Server
+
+`npm start` serves `dist/` over Express with the headers a production deploy needs.
+`npm run start:watch` does the same and restarts when a server file changes (Node's
+built-in `--watch`; no nodemon required). Run `npm run build` first — the server exits
+with a clear message rather than serving 404s if `dist/` is missing.
+
+| File               | Responsibility                                                           |
+| ------------------ | ------------------------------------------------------------------------ |
+| `server.js`        | Entry: env parsing, preflight check, listen, logging, graceful shutdown  |
+| `server/app.js`    | `createApp({ distDir })` — middleware, static mounts, 404, error handler |
+| `server/csp.js`    | The Content-Security-Policy — **the one file you edit per site**         |
+| `server/listen.js` | `listenWithFallback()` — the port walk                                   |
+
+| Variable      | Default     | Notes                                                               |
+| ------------- | ----------- | ------------------------------------------------------------------- |
+| `PORT`        | `8006`      | An unparseable value exits 1 rather than silently binding elsewhere |
+| `HOST`        | `0.0.0.0`   | Set `127.0.0.1` to bind loopback only                               |
+| `NODE_ENV`    | unset       | `production` enables HSTS and `upgrade-insecure-requests`           |
+| `TRUST_PROXY` | unset (off) | Number of proxy hops, or any value Express's `trust proxy` accepts  |
+
+**If the port is busy the server takes the next one** — 8006 → 8007 → …, up to ten
+attempts — and logs where it landed:
+
+```
+[2026-08-25 09:35:12] Port 8006 is already in use — trying 8007…
+[2026-08-25 09:35:12] vite-express-mpa-template running on http://localhost:8007
+```
+
+`EACCES` is not retried: a privileged port is a permissions problem that the next port
+up will not fix.
+
+**Headers** come from `helmet`. HTML is served `no-cache`, `/assets/*` (content-hashed)
+`immutable` for a year, `/fonts/*` for a week. An unknown path gets a real `404` — never
+a redirect to `/`, which would hand a `text/html` body to a request for a missing chunk
+and break the stale-deploy recovery in `src/reloadOnChunkError.js`.
+
+One thing to know before you add analytics: **`script-src` has no `'unsafe-inline'`.**
+This template's build emits zero inline scripts, so the strict policy costs nothing —
+but Google Tag Manager's container snippet and some AdSense paths _are_ inline and will
+be blocked. `server/csp.js` documents both ways out (allow `'unsafe-inline'`, or serve a
+nonce). It is also where you add any third-party script, font, embed or analytics host.
+
 ## Deployment
 
 Assets are emitted with content-hashed filenames, so old chunks disappear on each deploy.
@@ -229,18 +293,25 @@ To avoid the "white screen after deploy" problem (a stale, cached `index.html` r
 chunk hashes that no longer exist):
 
 - Serve the HTML entries with `Cache-Control: no-cache` (hashed assets under `dist/assets/`
-  can be cached long-term). Configure this at your host/CDN.
+  can be cached long-term).
 - `src/reloadOnChunkError.js` (imported first by every entry) is a client-side safety net
   that does a one-time reload if a stale chunk fails to load after a deploy.
 
 Prerendered HTML makes fresh-HTML serving more important, not less: the markup in each
 `index.html` is tied to the asset hashes referenced alongside it.
 
+There are two ways to satisfy those rules:
+
+1. **Static host** — hand `dist/` to Netlify, Vercel, S3, GitHub Pages or a CDN and
+   configure the headers there (`_headers`, `vercel.json`, nginx, CloudFront behaviors).
+2. **Express** — run `NODE_ENV=production npm start` behind a TLS-terminating proxy
+   (set `TRUST_PROXY`) and the server applies them for you. See "Server" above.
+
 See [`CLAUDE.md`](./CLAUDE.md) for the full details.
 
 ## Contributing
 
-Feel free to [open an issue](https://github.com/CharlesInteractive/vite-react-tailwind-prettier-mpa-template/issues/new) or create a PR if you'd like to contribute.
+Feel free to [open an issue](https://github.com/CharlesInteractive/vite-express-mpa-template/issues/new) or create a PR if you'd like to contribute.
 
 ## License
 

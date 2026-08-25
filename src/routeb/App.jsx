@@ -9,9 +9,8 @@ import Header from "../components/Header";
 // index.html (which is what the dev server shows); tests/routes.test.js
 // enforces that. `image` and `siteUrl` are optional additions for og: tags.
 export const meta = {
-  title: "Route B · Vite + React + Tailwind CSS",
-  description:
-    "Route B — an example page in the Vite + React + Tailwind CSS multi-page template.",
+  title: "Route B · Vite Express MPA Template",
+  description: "Route B — an example page in the Vite Express MPA template.",
 };
 
 function App() {

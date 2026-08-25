@@ -5,18 +5,24 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 A boilerplate template for building simple **Multi-Page Applications (MPA)** with
-React, Vite, and Tailwind CSS. Each "page"/route is a fully independent HTML entry
-point with its own React root — there is no client-side router. Navigation between
-pages is plain `<a href>` links that trigger full page loads.
+React, Vite, Express and Tailwind CSS. Each "page"/route is a fully independent HTML
+entry point with its own React root — there is no client-side router. Navigation
+between pages is plain `<a href>` links that trigger full page loads.
 
 Every page is **prerendered to static HTML at build time** and hydrated in the
 browser, so crawlers and users get real markup instead of an empty `<div id="root">`.
-See "Rendering" below. Output is still 100% static — no server to run.
+See "Rendering" below.
+
+The build output stays 100% static, so a static host still works. What the template
+adds is an **Express server** (`server.js` + `server/`) that serves `dist/` with the
+cache and security headers this build needs, so a site can be deployed anywhere Node
+runs without reproducing that header config per host. See "Server" below.
 
 ## Stack
 
 - **Vite 8** — dev server + build (`@vitejs/plugin-react` 6)
 - **React 19** (`react` / `react-dom`)
+- **Express 5** — production host for `dist/`, with **helmet** for security headers
 - **Tailwind CSS 4** — via `@tailwindcss/postcss` (PostCSS plugin)
 - **ESLint 9** — flat config (`eslint.config.js`)
 - **Prettier 3** — with `prettier-plugin-tailwindcss` (auto-sorts class names)
@@ -34,6 +40,8 @@ Node version is pinned in `.nvmrc`.
 - `npm run lint` — ESLint (`--max-warnings 0`, so warnings fail)
 - `npm run test` — run the Vitest suite once
 - `npm run test:watch` — Vitest in watch mode
+- `npm start` — serve the production build over Express (needs `npm run build` first)
+- `npm run start:watch` — same, restarting on server file changes (`node --watch`)
 
 ## MPA structure
 
@@ -113,6 +121,74 @@ Vite inlines that flag, so the unused branch is dropped from the production bund
 The practical consequence: `<title>` and meta tags in dev come from the static
 `index.html`, not from `meta`, and the route test keeps the two in sync.
 
+## Server
+
+`npm start` runs `server.js`, which serves `dist/` — the same output a static host
+would get, with the headers already applied. `npm run preview` (Vite's own preview
+server) is still there for a quick look at a build; `npm start` is the one that
+matches production.
+
+| File               | Responsibility                                                           |
+| ------------------ | ------------------------------------------------------------------------ |
+| `server.js`        | Entry: env parsing, preflight check, listen, logging, graceful shutdown  |
+| `server/app.js`    | `createApp({ distDir })` — middleware, static mounts, 404, error handler |
+| `server/csp.js`    | The Content-Security-Policy directives                                   |
+| `server/listen.js` | `listenWithFallback()` — the port walk                                   |
+
+`server/` lives at the repo root, outside Vite's `root` (`src/`), so it is never part
+of a build. `createApp` deliberately does not listen: `server.js` owns the port, and
+the tests build an app over a temporary `dist` fixture.
+
+### Environment
+
+| Variable      | Default     | Notes                                                              |
+| ------------- | ----------- | ------------------------------------------------------------------ |
+| `PORT`        | `8006`      | An unparseable value exits 1 rather than silently falling back     |
+| `HOST`        | `0.0.0.0`   | Set `127.0.0.1` to bind loopback only                              |
+| `NODE_ENV`    | unset       | `production` enables HSTS and `upgrade-insecure-requests`          |
+| `TRUST_PROXY` | unset (off) | Number of proxy hops, or any value Express's `trust proxy` accepts |
+
+**Ports:** if the port is taken, the server walks up (8006 → 8007 → …, ten attempts)
+and logs the one it lands on. `EACCES` is not retried — a privileged port is a
+permissions problem the next port up will not fix.
+
+### Headers
+
+Set through `helmet`, with `useDefaults: true`, so anything not listed in
+`server/csp.js` keeps helmet's default — notably `script-src-attr 'none'`.
+
+- **To allow a third-party script, font, embed or analytics endpoint, edit
+  `server/csp.js`**, not `server/app.js`.
+- `script-src` has **no `'unsafe-inline'`**: the build emits zero inline scripts, so
+  the strict policy is free. Google Tag Manager's container snippet and some AdSense
+  paths _are_ inline and will be blocked — `server/csp.js` documents the two ways out
+  (add `'unsafe-inline'`, or serve a nonce).
+- `style-src` keeps `'unsafe-inline'`; Typekit and inline `style=` attributes need it.
+- HSTS is production-only. It is a year-long promise a browser remembers, and pinning
+  `http://localhost` to https would make local development unreachable.
+- No CORS and no body parser: this app serves static files to same-origin requests and
+  reads no request bodies. Add both per-route if the template grows an API.
+
+### Caching
+
+`server/app.js` is the reference implementation of the rules in "Deployment" below:
+
+| Path        | `Cache-Control`                       |
+| ----------- | ------------------------------------- |
+| `*.html`    | `no-cache`                            |
+| `/assets/*` | `public, max-age=31536000, immutable` |
+| `/fonts/*`  | `public, max-age=604800`              |
+
+`/fonts` comes from `src/public/`, so those filenames are stable across builds — long
+cache, but not `immutable`.
+
+### 404s
+
+An unknown path gets a real `404` (serving `dist/404.html` if you add one), never a
+redirect to `/`. Redirecting would hand a `text/html` body to a request for a missing
+hashed chunk, which defeats the `vite:preloadError` recovery in
+`src/reloadOnChunkError.js` and produces soft-404s for crawlers.
+
 ## Testing
 
 - **Vitest** + **Testing Library** in a `jsdom` environment. `vitest.config.js` runs from
@@ -122,7 +198,11 @@ The practical consequence: `<title>` and meta tags in dev come from the static
 - Tests are colocated as `*.test.jsx`/`*.test.js` next to the code, plus
   `tests/routes.test.js` (the MPA "three places" invariant plus the prerender
   prerequisites), `tests/hydration.test.jsx` (server markup hydrates warning-free),
-  and `scripts/prerenderHtml.test.js` (the prerender's string transforms).
+  `scripts/prerenderHtml.test.js` (the prerender's string transforms), and
+  `tests/server.test.js` (headers, caching, 404s, traversal and the port walk).
+- `tests/server.test.js` opens with a `// @vitest-environment node` docblock and
+  builds its own temporary `dist` fixture — CI runs the suite _before_ `npm run build`,
+  so no test may assume a real `dist/` exists.
 
 ## Styling (Tailwind 4)
 
@@ -143,12 +223,18 @@ problem (a stale, cached `index.html` requesting chunk hashes that no longer exi
 
 1. **Serve HTML with `Cache-Control: no-cache`** (or a very short max-age) so browsers
    always fetch fresh HTML pointing at current asset hashes. Hashed assets under
-   `dist/assets/` can be cached long-term (`immutable`). Configure this at your host/CDN
-   (e.g. Netlify `_headers`, Vercel `headers`, nginx, CloudFront behaviors).
+   `dist/assets/` can be cached long-term (`immutable`). **`npm start` does this for
+   you** — see "Server" above. On a static host, configure it at the host/CDN instead
+   (Netlify `_headers`, Vercel `headers`, nginx, CloudFront behaviors).
 2. **`src/reloadOnChunkError.js`** is a client-side safety net imported first by every
    entry (`main.jsx`). It listens for Vite's `vite:preloadError` event and does a
    one-time `location.reload()` (guarded via `sessionStorage`) so a user on a stale tab
-   recovers automatically instead of seeing a blank page.
+   recovers automatically instead of seeing a blank page. This relies on a missing
+   chunk actually returning a 404, which is why the server never redirects one to `/`.
+
+Two ways to deploy, in other words: hand `dist/` to any static host and reproduce the
+header rules there, or run `NODE_ENV=production npm start` behind a TLS-terminating
+proxy (set `TRUST_PROXY`) and get them applied for you.
 
 ## Conventions
 
