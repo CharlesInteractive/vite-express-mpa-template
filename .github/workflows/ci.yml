@@ -26,3 +26,13 @@ jobs:
             grep -q '<div id="root"><' "dist/$page.html" \
               || { echo "dist/$page.html was not prerendered"; exit 1; }
           done
+
+      # The unit tests exercise the app over a fixture dist/. This proves the
+      # real entry point boots against the real build and serves it.
+      - name: Smoke-test the Express server
+        run: |
+          node server.js &
+          curl --retry 20 --retry-delay 1 --retry-connrefused -fsS \
+            -o /dev/null http://localhost:8006/
+          test "$(curl -s -o /dev/null -w '%{http_code}' \
+            http://localhost:8006/does-not-exist)" = "404"

@@ -40,7 +40,13 @@ export default [
   {
     // Build tooling and tests run in Node, not the browser: they need `process`,
     // `console` and friends.
-    files: ["scripts/**/*.js", "*.config.js", "tests/**/*.js"],
+    files: [
+      "scripts/**/*.js",
+      "*.config.js",
+      "tests/**/*.js",
+      "server.js",
+      "server/**/*.js",
+    ],
     languageOptions: { globals: globals.node },
   },
 ];
