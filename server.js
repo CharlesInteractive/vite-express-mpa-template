@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createApp, defaultDistDir } from "./server/app.js";
 import { listenWithFallback } from "./server/listen.js";
 
-const DEFAULT_PORT = 8006;
+const DEFAULT_PORT = 8007;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const pad = (n) => String(n).padStart(2, "0");
