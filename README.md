@@ -257,22 +257,27 @@ with a clear message rather than serving 404s if `dist/` is missing.
 | `server/csp.js`    | The Content-Security-Policy — **the one file you edit per site**         |
 | `server/listen.js` | `listenWithFallback()` — the port walk                                   |
 
-| Variable      | Default     | Notes                                                               |
-| ------------- | ----------- | ------------------------------------------------------------------- |
-| `PORT`        | `8006`      | An unparseable value exits 1 rather than silently binding elsewhere |
-| `HOST`        | `0.0.0.0`   | Set `127.0.0.1` to bind loopback only                               |
-| `NODE_ENV`    | unset       | `production` enables HSTS and `upgrade-insecure-requests`           |
-| `TRUST_PROXY` | unset (off) | Number of proxy hops, or any value Express's `trust proxy` accepts  |
+| Variable      | Default     | Notes                                                              |
+| ------------- | ----------- | ------------------------------------------------------------------ |
+| `PORT`        | `8007`      | Set explicitly it is bind-or-die; an unparseable value exits 1     |
+| `HOST`        | `0.0.0.0`   | Set `127.0.0.1` to bind loopback only                              |
+| `NODE_ENV`    | unset       | `production` enables HSTS and `upgrade-insecure-requests`          |
+| `TRUST_PROXY` | unset (off) | Number of proxy hops, or any value Express's `trust proxy` accepts |
 
-**If the port is busy the server takes the next one** — 8006 → 8007 → …, up to ten
-attempts — and logs where it landed:
+**If `PORT` is unset and the port is busy, the server takes the next one** — 8007 → 8008
+→ …, up to ten attempts — and logs where it landed:
 
 ```
-[2026-08-25 09:35:12] Port 8006 is already in use — trying 8007…
-[2026-08-25 09:35:12] vite-express-mpa-template running on http://localhost:8007
+[2026-08-25 09:35:12] Port 8007 is already in use — trying 8008…
+[2026-08-25 09:35:12] vite-express-mpa-template listening on http://0.0.0.0:8008
 ```
 
-`EACCES` is not retried: a privileged port is a permissions problem that the next port
+**If `PORT` was set explicitly, it does not walk at all** — it binds that port or exits 1.
+Convenient on a laptop is dangerous behind a proxy: landing on 8008 when nginx points at
+8007 is invisible, because the process manager still reports the app healthy while every
+request 502s.
+
+`EACCES` is never retried: a privileged port is a permissions problem that the next port
 up will not fix.
 
 **Headers** come from `helmet`. HTML is served `no-cache`, `/assets/*` (content-hashed)
@@ -306,6 +311,73 @@ There are two ways to satisfy those rules:
    configure the headers there (`_headers`, `vercel.json`, nginx, CloudFront behaviors).
 2. **Express** — run `NODE_ENV=production npm start` behind a TLS-terminating proxy
    (set `TRUST_PROXY`) and the server applies them for you. See "Server" above.
+
+### Running under pm2 behind nginx
+
+`ecosystem.config.cjs` at the repo root is a working pm2 definition:
+
+```bash
+npm ci
+npm run build          # the server refuses to boot without dist/
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 logs               # the startup banner must appear here
+```
+
+If the box runs more than one Node version, set `interpreter` to the one matching
+`.nvmrc` — there is a commented example in the config. Without it pm2 uses whatever Node
+its **daemon** was started with, which is rarely the version you expect:
+
+```js
+interpreter: "/root/.nvm/versions/node/v22.23.2/bin/node",
+```
+
+**The `.cjs` extension matters.** `package.json` sets `"type": "module"`, so an
+`ecosystem.config.js` is loaded as an ES module — and on Node 22 that fails silently:
+`module.exports` does not throw, but pm2 receives the empty ES module namespace and sees a
+config with no `apps` at all.
+
+The config sets four environment variables that matter in production:
+
+| Variable      | Value        | Why                                                                                                        |
+| ------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`    | `production` | Turns on HSTS and `upgrade-insecure-requests`                                                              |
+| `PORT`        | `8007`       | Explicit, so the server binds this port **or exits 1** rather than quietly taking the next one — see below |
+| `HOST`        | `127.0.0.1`  | Loopback only; the default `0.0.0.0` leaves the app reachable directly, bypassing the proxy and its TLS    |
+| `TRUST_PROXY` | `1`          | One proxy hop, so `req.ip` and `req.secure` read `X-Forwarded-*`                                           |
+
+An **explicitly set `PORT` is bind-or-die**. Walking to the next free port is a good
+default on a laptop and a bad one behind a proxy: the process manager reports the app
+healthy while every request 502s. With `PORT` set, a collision exits 1 and says so.
+
+The matching nginx block:
+
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:8007;
+  proxy_http_version 1.1;
+  proxy_set_header Host              $host;
+  proxy_set_header X-Real-IP         $remote_addr;
+  proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;   # TRUST_PROXY reads this
+  proxy_intercept_errors off;                   # keep the app's own 404 page
+}
+```
+
+Two things to leave out that are easy to paste in by habit: `proxy_set_header Upgrade` /
+`Connection "upgrade"` is websocket plumbing and this app has none, and
+`proxy_intercept_errors on` throws away the 404 page the app serves in favour of nginx's.
+
+`GET /healthz` returns `{"ok":true,"port":…,"uptime":…}` for uptime checks — and answers
+"is it actually listening?", which a process manager reporting _online_ does not.
+
+> **Entry-point note.** `server.js` is a script: it starts a server whenever it is loaded
+> and exports nothing. Do not reintroduce an
+> `import.meta.url === pathToFileURL(process.argv[1]).href` guard around the startup call.
+> Process managers do not exec your script directly — pm2 fork mode spawns
+> `ProcessContainerFork.js`, which imports the app without rewriting `process.argv[1]`, so
+> such a guard evaluates false and the process runs forever without listening. Anything
+> that needs to be imported lives in `server/` instead.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full details.
 

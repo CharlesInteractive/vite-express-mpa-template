@@ -1,11 +1,20 @@
+// `npm start` entry point.
+//
+// This file is a SCRIPT, not a module: it exports nothing and always starts a
+// server when loaded. That is deliberate. It used to guard the call behind
+// `import.meta.url === pathToFileURL(process.argv[1]).href` so tests could
+// import from it — but process managers do not exec your script directly. pm2's
+// fork mode spawns `node ProcessContainerFork.js`, which then imports the app
+// without rewriting `process.argv[1]`, so the guard silently evaluated false and
+// the process sat there "online", listening to nothing. Anything importable
+// lives in server/ instead.
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { createApp, defaultDistDir } from "./server/app.js";
 import { listenWithFallback } from "./server/listen.js";
+import { portWasSpecified, resolveHost, resolvePort } from "./server/config.js";
 
-const DEFAULT_PORT = 8007;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -21,27 +30,10 @@ const log = (message) => console.log(`${timestamp()} ${message}`);
 const logHighlight = (message) =>
   console.log("\x1b[35m%s\x1b[0m", `${timestamp()} ${message}`);
 
-/**
- * Read PORT from the environment. An unparseable value is a hard error rather
- * than a silent fallback: binding some other port than the one configured is
- * how a deploy ends up serving nothing behind a proxy.
- */
-export function resolvePort(raw = process.env.PORT) {
-  if (raw === undefined || raw === "") return DEFAULT_PORT;
-
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new Error(
-      `Invalid PORT "${raw}": expected an integer between 0 and 65535.`,
-    );
-  }
-  return port;
-}
-
-export async function start({
+async function start({
   distDir = defaultDistDir,
   port = resolvePort(),
-  host = process.env.HOST || "0.0.0.0",
+  host = resolveHost(),
 } = {}) {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
@@ -51,16 +43,28 @@ export async function start({
 
   const server = createServer(createApp({ distDir }));
 
+  // An explicit PORT is bind-or-die: something upstream (nginx, a load balancer,
+  // a container port mapping) is configured for that exact number, and quietly
+  // landing on the next one up is invisible — the process manager reports the
+  // app healthy while every request 502s.
+  const strictPort = portWasSpecified();
+
   const boundPort = await listenWithFallback(server, {
     port,
     host,
+    maxAttempts: strictPort ? 1 : 10,
     onPortInUse: (busy, next) =>
       log(`Port ${busy} is already in use — trying ${next}…`),
   });
 
+  // Print enough to answer "did it start, and as what?" from the logs alone.
   logHighlight(
-    `vite-express-mpa-template running on http://localhost:${boundPort}`,
+    `vite-express-mpa-template listening on http://${host}:${boundPort}`,
   );
+  log(
+    `pid ${process.pid} • node ${process.version} • NODE_ENV=${process.env.NODE_ENV ?? "(unset)"}`,
+  );
+  log(`serving ${distDir}`);
 
   installShutdownHandlers(server);
   return { server, port: boundPort };
@@ -87,14 +91,11 @@ function installShutdownHandlers(server) {
   }
 }
 
-// Only start when run directly (`node server.js`), so tests and other callers
-// can import createApp/start without binding a port.
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  start().catch((err) => {
-    console.error(`${timestamp()} ${err.message}`);
-    process.exit(1);
-  });
-}
+start().catch((err) => {
+  const hint =
+    err.code === "EADDRINUSE" && portWasSpecified()
+      ? " (PORT was set explicitly, so it is not retried on the next port up.)"
+      : "";
+  console.error(`${timestamp()} ${err.message}${hint}`);
+  process.exit(1);
+});

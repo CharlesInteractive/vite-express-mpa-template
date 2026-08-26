@@ -30,9 +30,12 @@ jobs:
       # The unit tests exercise the app over a fixture dist/. This proves the
       # real entry point boots against the real build and serves it.
       - name: Smoke-test the Express server
+        env:
+          PORT: 8007
         run: |
           node server.js &
           curl --retry 20 --retry-delay 1 --retry-connrefused -fsS \
-            -o /dev/null http://localhost:8006/
+            -o /dev/null http://localhost:8007/
+          curl -fsS http://localhost:8007/healthz | grep -q '"ok":true'
           test "$(curl -s -o /dev/null -w '%{http_code}' \
-            http://localhost:8006/does-not-exist)" = "404"
+            http://localhost:8007/does-not-exist)" = "404"

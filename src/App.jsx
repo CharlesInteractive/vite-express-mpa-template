@@ -271,15 +271,16 @@ tailwind.config.js        # theme, loaded via @config in index.css`}
           </ul>
           <p>
             Configuration is environment variables: <code>PORT</code> (defaults
-            to 8006; an unparseable value exits 1 rather than silently binding
-            elsewhere), <code>HOST</code> (defaults to <code>0.0.0.0</code>),{" "}
-            <code>NODE_ENV</code> (<code>production</code> enables HSTS and{" "}
+            to 8007; set explicitly it is bind-or-die, and an unparseable value
+            exits 1 rather than silently binding elsewhere), <code>HOST</code>{" "}
+            (defaults to <code>0.0.0.0</code>), <code>NODE_ENV</code> (
+            <code>production</code> enables HSTS and{" "}
             <code>upgrade-insecure-requests</code>), and{" "}
             <code>TRUST_PROXY</code> for running behind a reverse proxy.
           </p>
           <p>
             <strong>If the port is busy the server takes the next one</strong> —
-            8006, 8007, and so on for up to ten attempts — and logs where it
+            8007, 8008, and so on for up to ten attempts — and logs where it
             landed. <code>EACCES</code> is not retried: a privileged port is a
             permissions problem that the next port up will not fix.
           </p>

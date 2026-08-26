@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.js";
 import { listenWithFallback } from "../server/listen.js";
-import { resolvePort } from "../server.js";
+import { portWasSpecified, resolvePort } from "../server/config.js";
 
 // The suite builds its own dist fixture rather than using the real dist/: CI
 // runs `npm run test` before `npm run build`, so nothing here may assume a
@@ -179,6 +179,22 @@ describe("routing", () => {
     });
   });
 
+  it("answers /healthz with the port it actually bound", async () => {
+    // The endpoint a proxy or uptime check hits, and the fastest way to tell a
+    // process that is running from one that is actually listening.
+    await withServer(async (base) => {
+      const res = await fetch(`${base}/healthz`);
+      const body = await res.json();
+      const expectedPort = Number(new URL(base).port);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(body.ok).toBe(true);
+      expect(body.port).toBe(expectedPort);
+      expect(typeof body.uptime).toBe("number");
+    });
+  });
+
   it("refuses to serve files outside dist/", async () => {
     await withServer(async (base) => {
       const res = await fetch(`${base}/%2e%2e%2fsecret.txt`, {
@@ -216,7 +232,10 @@ describe("listenWithFallback", () => {
     }
   });
 
-  it("gives up after maxAttempts", async () => {
+  it("does not walk at all when maxAttempts is 1", async () => {
+    // What an explicitly set PORT gets: bind that exact port or fail loudly,
+    // because a proxy is configured for that number and quietly landing on the
+    // next one up is invisible until every request 502s.
     const blocker = createServer();
     const blockedPort = await listenWithFallback(blocker, {
       port: 0,
@@ -224,24 +243,66 @@ describe("listenWithFallback", () => {
     });
 
     const server = createServer();
+    const inUse = [];
     try {
       await expect(
         listenWithFallback(server, {
           port: blockedPort,
           host: "127.0.0.1",
           maxAttempts: 1,
+          onPortInUse: (busy, next) => inUse.push([busy, next]),
         }),
-      ).rejects.toThrow(/Could not find a free port/);
+      ).rejects.toThrow(`Port ${blockedPort} is already in use.`);
+
+      expect(inUse).toEqual([]);
     } finally {
       await new Promise((resolve) => blocker.close(resolve));
+    }
+  });
+
+  it("gives up after walking maxAttempts ports", async () => {
+    // Two consecutive ports blocked, two attempts allowed: it walks once, then
+    // reports the whole range it tried rather than climbing forever.
+    const first = createServer();
+    const firstPort = await listenWithFallback(first, {
+      port: 0,
+      host: "127.0.0.1",
+    });
+    const second = createServer();
+    await listenWithFallback(second, {
+      port: firstPort + 1,
+      host: "127.0.0.1",
+      maxAttempts: 1,
+    });
+
+    const server = createServer();
+    try {
+      await expect(
+        listenWithFallback(server, {
+          port: firstPort,
+          host: "127.0.0.1",
+          maxAttempts: 2,
+        }),
+      ).rejects.toThrow(
+        `Could not find a free port: tried ${firstPort}-${firstPort + 1}`,
+      );
+    } finally {
+      await new Promise((resolve) => second.close(resolve));
+      await new Promise((resolve) => first.close(resolve));
     }
   });
 });
 
 describe("resolvePort", () => {
   it("defaults when PORT is unset or empty", () => {
-    expect(resolvePort(undefined)).toBe(8006);
-    expect(resolvePort("")).toBe(8006);
+    expect(resolvePort(undefined)).toBe(8007);
+    expect(resolvePort("")).toBe(8007);
+  });
+
+  it("reports whether PORT was set, which decides bind-or-die", () => {
+    expect(portWasSpecified(undefined)).toBe(false);
+    expect(portWasSpecified("")).toBe(false);
+    expect(portWasSpecified("8007")).toBe(true);
   });
 
   it("accepts a valid port", () => {

@@ -130,7 +130,8 @@ matches production.
 
 | File               | Responsibility                                                           |
 | ------------------ | ------------------------------------------------------------------------ |
-| `server.js`        | Entry: env parsing, preflight check, listen, logging, graceful shutdown  |
+| `server.js`        | Entry script: preflight check, listen, logging, graceful shutdown        |
+| `server/config.js` | `resolvePort()`, `resolveHost()`, `portWasSpecified()`                   |
 | `server/app.js`    | `createApp({ distDir })` — middleware, static mounts, 404, error handler |
 | `server/csp.js`    | The Content-Security-Policy directives                                   |
 | `server/listen.js` | `listenWithFallback()` — the port walk                                   |
@@ -139,18 +140,35 @@ matches production.
 of a build. `createApp` deliberately does not listen: `server.js` owns the port, and
 the tests build an app over a temporary `dist` fixture.
 
+**`server.js` is a script, not a module.** It starts a server whenever it is loaded and
+exports nothing — which is why env parsing lives in `server/config.js`. Do not "fix" that
+by wrapping the startup call in an
+`import.meta.url === pathToFileURL(process.argv[1]).href` guard: process managers do not
+exec the script directly. pm2 fork mode spawns its own `ProcessContainerFork.js`, which
+imports the app **without rewriting `process.argv[1]`**, so the guard evaluates false and
+the process runs forever — reported healthy, listening to nothing. Anything importable
+belongs in `server/`.
+
+`GET /healthz` returns `{ ok, port, uptime }`, with the port read off the socket so it
+reports what the process actually bound rather than what it was configured with.
+
 ### Environment
 
 | Variable      | Default     | Notes                                                              |
 | ------------- | ----------- | ------------------------------------------------------------------ |
-| `PORT`        | `8006`      | An unparseable value exits 1 rather than silently falling back     |
+| `PORT`        | `8007`      | An unparseable value exits 1 rather than silently falling back     |
 | `HOST`        | `0.0.0.0`   | Set `127.0.0.1` to bind loopback only                              |
 | `NODE_ENV`    | unset       | `production` enables HSTS and `upgrade-insecure-requests`          |
 | `TRUST_PROXY` | unset (off) | Number of proxy hops, or any value Express's `trust proxy` accepts |
 
-**Ports:** if the port is taken, the server walks up (8006 → 8007 → …, ten attempts)
-and logs the one it lands on. `EACCES` is not retried — a privileged port is a
-permissions problem the next port up will not fix.
+**Ports:** the walk depends on whether `PORT` was set. Unset, the server walks up
+(8007 → 8008 → …, ten attempts) and logs where it landed — convenient on a laptop. Set
+explicitly, it is **bind-or-die**: a collision exits 1, because something upstream is
+configured for that exact number and quietly taking the next one is invisible until every
+request 502s. `EACCES` is never retried — a privileged port is a permissions problem the
+next port up will not fix.
+
+See "Deployment" below for the pm2 + nginx setup that relies on this.
 
 ### Headers
 
@@ -220,6 +238,19 @@ hashed chunk, which defeats the `vite:preloadError` recovery in
 Assets are emitted with content-hashed filenames (Vite default). On each deploy the
 hashes change and old chunks are removed. To avoid the "white screen after deploy"
 problem (a stale, cached `index.html` requesting chunk hashes that no longer exist):
+
+### pm2 + nginx
+
+`ecosystem.config.cjs` is a working pm2 definition: `pm2 start ecosystem.config.cjs`.
+The `.cjs` extension is required — `package.json` is `"type": "module"`, so an
+`ecosystem.config.js` loads as an ES module and pm2 silently receives an empty namespace
+with no `apps` (the `module.exports` assignment does not even throw). It sets
+`NODE_ENV=production`, `PORT=8007`, `HOST=127.0.0.1` and `TRUST_PROXY=1`.
+
+The nginx side needs `X-Forwarded-Proto` for `TRUST_PROXY` to mean anything, and
+`proxy_intercept_errors off` so the app's own 404 page survives. Do not paste in
+`proxy_set_header Upgrade` / `Connection "upgrade"`: that is websocket plumbing and this
+app has none.
 
 1. **Serve HTML with `Cache-Control: no-cache`** (or a very short max-age) so browsers
    always fetch fresh HTML pointing at current asset hashes. Hashed assets under

@@ -57,13 +57,18 @@ export function listenWithFallback(
         }
 
         if (attempt >= maxAttempts || current >= MAX_PORT) {
-          reject(
-            new Error(
-              `Could not find a free port: tried ${port}-${current} ` +
-                `(${attempt} attempt${attempt === 1 ? "" : "s"}).`,
-              { cause: err },
-            ),
+          // With maxAttempts 1 nothing was ever going to be "found" — the caller
+          // asked for one specific port — so say that instead.
+          const exhausted = new Error(
+            maxAttempts === 1
+              ? `Port ${current} is already in use.`
+              : `Could not find a free port: tried ${port}-${current} ` +
+                  `(${attempt} attempt${attempt === 1 ? "" : "s"}).`,
+            { cause: err },
           );
+          // Preserved so callers can branch on the cause without unwrapping.
+          exhausted.code = "EADDRINUSE";
+          reject(exhausted);
           return;
         }
 

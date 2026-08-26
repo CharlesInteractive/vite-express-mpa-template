@@ -79,6 +79,19 @@ export function createApp({ distDir = defaultDistDir } = {}) {
   // `express.json({ limit: "100kb" })` and an origin-allowlisted `cors({ origin: [...] })`
   // on those routes specifically rather than globally.
 
+  // Registered before the static mounts so a file in dist/ cannot shadow it.
+  // The port comes off the socket rather than from config, so this reports what
+  // the process actually bound — the question you want answered when a proxy is
+  // returning 502 while the process manager claims the app is healthy.
+  app.get("/healthz", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      ok: true,
+      port: req.socket.localPort,
+      uptime: Number(process.uptime().toFixed(1)),
+    });
+  });
+
   app.use(
     "/assets",
     express.static(join(distDir, "assets"), {
